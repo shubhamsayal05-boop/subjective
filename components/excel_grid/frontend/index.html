@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@2.0.0/dist/streamlit-component-lib.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Calibri, Arial, sans-serif; background: #e6e6e6; }
+    #toolbar {
+      background: #217346; color: #fff; padding: 6px 10px; font-size: 12px;
+      display: flex; gap: 16px; align-items: center;
+    }
+    #wrap {
+      overflow: auto; height: calc(100vh - 36px); max-height: var(--grid-height, 700px);
+      border: 1px solid #a6a6a6; background: #e6e6e6; padding: 6px;
+    }
+    table.sheet {
+      border-collapse: collapse; background: #fff; table-layout: fixed;
+      font-size: 11px;
+    }
+    table.sheet th, table.sheet td {
+      border: 1px solid #b4b4b4; padding: 2px 5px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 200px; min-height: 18px; vertical-align: middle;
+    }
+    table.sheet thead th { background: #217346; color: #fff; font-size: 10px; text-align: center; }
+    table.sheet .rh { background: #f0f0f0; color: #333; font-size: 10px; width: 32px; text-align: center; }
+    table.sheet td.formula { background: #f3f3f3; color: #333; }
+    table.sheet td.editable { cursor: cell; }
+    table.sheet td.editable:hover { outline: 1px solid #217346; }
+    table.sheet td.editing {
+      outline: 2px solid #217346; background: #fff !important;
+      white-space: normal; overflow: visible;
+    }
+    table.sheet td.dirty { background: #fff8dc !important; }
+    #hint { font-size: 11px; opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <strong id="sheet-name"></strong>
+    <span id="hint">Double-click a cell to edit · Enter or click away to save · Tab for next cell</span>
+    <span id="status"></span>
+  </div>
+  <div id="wrap"><table class="sheet" id="grid"></table></div>
+
+  <script>
+    let gridData = null;
+    let pendingEdits = {};
+    let sendTimer = null;
+    let activeEditor = null;
+
+    function sendEdits() {
+      if (Object.keys(pendingEdits).length === 0) return;
+      Streamlit.setComponentValue({ edits: { ...pendingEdits }, sheet: gridData.sheet });
+      document.getElementById("status").textContent = "Saving…";
+    }
+
+    function scheduleSend() {
+      clearTimeout(sendTimer);
+      sendTimer = setTimeout(sendEdits, 400);
+    }
+
+    function startEdit(td, coord) {
+      if (activeEditor) finishEdit(activeEditor, false);
+      if (!td.classList.contains("editable")) return;
+      activeEditor = td;
+      td.classList.add("editing");
+      td.contentEditable = "true";
+      td.focus();
+      const range = document.createRange();
+      range.selectNodeContents(td);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    function finishEdit(td, moveNext) {
+      if (!td || !td.classList.contains("editing")) return;
+      td.contentEditable = "false";
+      td.classList.remove("editing");
+      const coord = td.dataset.coord;
+      const newVal = td.textContent.trim();
+      const oldVal = td.dataset.original || "";
+      if (newVal !== oldVal) {
+        pendingEdits[coord] = newVal;
+        td.classList.add("dirty");
+        td.dataset.original = newVal;
+        document.getElementById("status").textContent = `Pending: ${Object.keys(pendingEdits).length}`;
+        scheduleSend();
+      }
+      activeEditor = null;
+      if (moveNext) focusNextEditable(td);
+    }
+
+    function focusNextEditable(td) {
+      const all = [...document.querySelectorAll("td.editable")];
+      const idx = all.indexOf(td);
+      if (idx >= 0 && idx < all.length - 1) startEdit(all[idx + 1], all[idx + 1].dataset.coord);
+    }
+
+    function buildGrid(data) {
+      gridData = data;
+      pendingEdits = {};
+      document.getElementById("sheet-name").textContent = data.sheet;
+      document.getElementById("status").textContent = "";
+      document.documentElement.style.setProperty("--grid-height", `${data.height || 700}px`);
+
+      const table = document.getElementById("grid");
+      table.innerHTML = "";
+      const { minRow, maxRow, minCol, maxCol, cells, merges, colWidths } = data;
+
+      const colgroup = document.createElement("colgroup");
+      const rhCol = document.createElement("col");
+      rhCol.style.width = "32px";
+      colgroup.appendChild(rhCol);
+      for (let c = minCol; c <= maxCol; c++) {
+        const col = document.createElement("col");
+        col.style.width = `${(colWidths && colWidths[c]) || 64}px`;
+        colgroup.appendChild(col);
+      }
+      table.appendChild(colgroup);
+
+      const covered = new Set();
+      const mergeMap = {};
+      (merges || []).forEach(m => {
+        mergeMap[`${m.r},${m.c}`] = m;
+        for (let r = m.r; r < m.r + m.rs; r++)
+          for (let c = m.c; c < m.c + m.cs; c++)
+            if (r !== m.r || c !== m.c) covered.add(`${r},${c}`);
+      });
+
+      const thead = document.createElement("thead");
+      const hr = document.createElement("tr");
+      hr.appendChild(th("rh", ""));
+      for (let c = minCol; c <= maxCol; c++) hr.appendChild(th("", colLetter(c)));
+      thead.appendChild(hr);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      for (let r = minRow; r <= maxRow; r++) {
+        const tr = document.createElement("tr");
+        tr.appendChild(th("rh", String(r)));
+        for (let c = minCol; c <= maxCol; c++) {
+          if (covered.has(`${r},${c}`)) continue;
+          const coord = colLetter(c) + r;
+          const info = cells[coord] || { v: "", e: false };
+          const td = document.createElement("td");
+          td.dataset.coord = coord;
+          td.dataset.original = info.v || "";
+          td.textContent = info.v || "";
+          td.title = coord;
+          if (info.bg) td.style.background = info.bg;
+          if (!info.e) td.classList.add("formula");
+          else td.classList.add("editable");
+          const m = mergeMap[`${r},${c}`];
+          if (m) {
+            if (m.rs > 1) td.rowSpan = m.rs;
+            if (m.cs > 1) td.colSpan = m.cs;
+          }
+          td.addEventListener("dblclick", () => startEdit(td, coord));
+          td.addEventListener("keydown", e => {
+            if (!td.classList.contains("editing")) return;
+            if (e.key === "Enter") { e.preventDefault(); finishEdit(td, true); }
+            if (e.key === "Tab") { e.preventDefault(); finishEdit(td, true); }
+            if (e.key === "Escape") {
+              td.textContent = td.dataset.original;
+              finishEdit(td, false);
+            }
+          });
+          td.addEventListener("blur", () => {
+            if (td.classList.contains("editing")) finishEdit(td, false);
+          });
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      Streamlit.setFrameHeight((data.height || 700) + 40);
+    }
+
+    function th(cls, text) {
+      const el = document.createElement("th");
+      if (cls) el.className = cls;
+      el.textContent = text;
+      return el;
+    }
+
+    function colLetter(n) {
+      let s = "";
+      while (n > 0) {
+        const m = (n - 1) % 26;
+        s = String.fromCharCode(65 + m) + s;
+        n = Math.floor((n - 1) / 26);
+      }
+      return s;
+    }
+
+    function onRender(event) {
+      const { gridData: data, height } = event.detail.args;
+      if (!data) return;
+      data.height = height;
+      buildGrid(data);
+    }
+
+    Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
+    Streamlit.setComponentReady();
+    Streamlit.setFrameHeight(740);
+  </script>
+</body>
+</html>

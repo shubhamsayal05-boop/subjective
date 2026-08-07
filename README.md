@@ -1,58 +1,47 @@
 # Subjective Spreadsheet Tool (Streamlit)
 
-Python Streamlit version of the subjective driveability test Excel spreadsheets. One unified app with the same worksheets, formulas, layout, and design as the original `.xlsm` files.
+Standalone **web-based** subjective driveability test tool. No Microsoft Excel installation required.
 
-## Versions
+## Versions (select on main screen)
 
-On the main screen, choose which template to work with:
+| Version | Use case |
+|---------|----------|
+| Base (General Transmission) | Standard template |
+| BEV (Battery Electric) | Battery electric vehicles |
+| CVT (CVT Transmission) | CVT transmissions |
 
-| Version | Original file |
-|---------|----------------|
-| Base (General Transmission) | `Subjective_SprdSheet_072926.xlsm` |
-| BEV (Battery Electric) | `BEV_Subjective_SprdSheet_072926.xlsm` |
-| CVT (CVT Transmission) | `CVT Subjective_SprdSheet_072926.xlsm` |
+## Editing (Excel-like)
 
-## Features
+- **Double-click** any editable (white) cell to edit
+- **Enter** or click away to save
+- **Tab** moves to the next editable cell
+- Grey cells are formula/calculated — use **Recalculate** after edits
 
-- Same sheet names and tab order as Excel
-- Excel-like grid preview (merged cells, colors, column widths)
-- Live formula recalculation (DRB Summary, Color Charts, filenames, etc.)
-- Cell editor and batch edit for subjective entry sheets
-- PV Max dropdown for transmission selector (cell A1)
-- Download updated workbook as `.xlsm` (formulas preserved)
-
-## Setup
+## Run locally
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open `http://localhost:8501` in your browser.
+Open http://localhost:8501
 
-## Usage
+## Performance
 
-1. Select **Base**, **BEV**, or **CVT** at the top of the main page.
-2. Open a worksheet from the sidebar (same names as Excel tabs).
-3. Enter subjective ratings and metadata using **Edit cell values** or **Quick edit**.
-4. Summary sheets (`DRB - Summary`, color charts) update after each apply/recalculate.
-5. Use **Download Excel (.xlsm)** to save your work.
+- **First open:** ~5 seconds (spreadsheet loads from bundled templates)
+- **Recalculate:** first time loads formula engine (~25s, cached); then ~2s
+- Without recalculate, saved template values are shown instantly
 
-## Project layout
+## Export
+
+Download `.xlsm` from the sidebar. Open in Excel only if you need native Excel printing — the web tool is fully standalone.
+
+## Structure
 
 ```
-app.py                  # Streamlit entry point
-app/
-  config.py             # Version paths and sheet groups
-  workbook_manager.py   # Load/edit/recalculate/export
-  html_renderer.py      # Excel-like HTML grid
-  conditional_formatting.py
-  utils.py
-templates/              # Original .xlsm templates (unchanged)
+app.py                     # Streamlit UI
+components/excel_grid/     # Double-click in-cell editor
+app/workbook_manager.py    # Data + optional live formulas
+app/grid_builder.py        # Grid JSON for the editor
+templates/                 # Bundled spreadsheet templates (internal)
 ```
-
-## Notes
-
-- First load of a version takes ~20–30 seconds while the formula engine initializes (cached afterward).
-- Recalculation after edits typically takes ~1–2 seconds.
-- Open downloaded `.xlsm` files in Excel to see fully calculated values with native Excel rendering.

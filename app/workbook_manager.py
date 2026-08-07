@@ -1,12 +1,12 @@
 import copy
 import io
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import formulas
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
 
 from app.utils import (
     build_dispatch_key,
@@ -22,19 +22,32 @@ class WorkbookManager:
     def __init__(self, template_path: Path):
         self.template_path = Path(template_path)
         self.book_name = self.template_path.name
-        self.wb = load_workbook(self.template_path, keep_vba=True)
+        path = str(self.template_path)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_wb = pool.submit(load_workbook, path, keep_vba=True)
+            f_cached = pool.submit(load_workbook, path, data_only=True)
+            self.wb = f_wb.result()
+            self.wb_cached = f_cached.result()
         self.formula_model: formulas.ExcelModel | None = None
         self.solution: dict[Any, Any] = {}
         self.user_values: dict[tuple[str, str], Any] = {}
         self._formula_cells: set[tuple[str, str]] = set()
         self._editable_cells: dict[str, list[tuple[str, str]]] = {}
         self._data_nodes: set[str] = set()
+        self._export_cache: bytes | None = None
         self._scan_cells()
 
     def _scan_cells(self) -> None:
         for ws in self.wb.worksheets:
             editable: list[tuple[str, str]] = []
-            for row in ws.iter_rows():
+            bounds = sheet_bounds(ws)
+            if bounds is None:
+                self._editable_cells[ws.title] = editable
+                continue
+            min_r, max_r, min_c, max_c = bounds
+            for row in ws.iter_rows(
+                min_row=min_r, max_row=max_r, min_col=min_c, max_col=max_c
+            ):
                 for cell in row:
                     coord = cell.coordinate
                     key = (ws.title, coord)
@@ -48,11 +61,20 @@ class WorkbookManager:
         self.formula_model = model
         self._data_nodes = {str(k) for k in model.dsp.data_nodes}
 
+    def has_formula_engine(self) -> bool:
+        return self.formula_model is not None
+
     def get_raw_cell_value(self, sheet: str, coord: str) -> Any:
         key = (sheet, coord)
         if key in self.user_values:
             return self.user_values[key]
         return self.wb[sheet][coord].value
+
+    def get_cached_value(self, sheet: str, coord: str) -> Any:
+        try:
+            return self.wb_cached[sheet][coord].value
+        except (KeyError, ValueError):
+            return None
 
     def get_display_value(self, sheet: str, coord: str) -> Any:
         key = (sheet, coord)
@@ -60,11 +82,21 @@ class WorkbookManager:
             computed = self._solution_lookup(sheet, coord)
             if computed is not None:
                 return computed
+            cached = self.get_cached_value(sheet, coord)
+            if cached is not None:
+                return cached
+            return ""
         if key in self.user_values:
             return self.user_values[key]
         val = self.wb[sheet][coord].value
         if is_formula(val):
-            return self._solution_lookup(sheet, coord) or ""
+            computed = self._solution_lookup(sheet, coord)
+            if computed is not None:
+                return computed
+            cached = self.get_cached_value(sheet, coord)
+            if cached is not None:
+                return cached
+            return ""
         return val
 
     def _solution_lookup(self, sheet: str, coord: str) -> Any:
@@ -87,9 +119,11 @@ class WorkbookManager:
         key = (sheet, coord)
         if key in self._formula_cells:
             return
+        self._export_cache = None
         if value == "" or value is None:
             self.user_values.pop(key, None)
             self.wb[sheet][coord].value = None
+            self.wb_cached[sheet][coord].value = None
         else:
             original = self.wb[sheet][coord].value
             if isinstance(original, (int, float)) and not isinstance(value, str):
@@ -99,6 +133,7 @@ class WorkbookManager:
                     pass
             self.user_values[key] = value
             self.wb[sheet][coord].value = value
+            self.wb_cached[sheet][coord].value = value
 
     def is_editable(self, sheet: str, coord: str) -> bool:
         return (sheet, coord) not in self._formula_cells
@@ -113,7 +148,13 @@ class WorkbookManager:
         inputs: dict[str, list[list[Any]]] = {}
         for ws in self.wb.worksheets:
             sheet = ws.title
-            for row in ws.iter_rows():
+            bounds = sheet_bounds(ws)
+            if bounds is None:
+                continue
+            min_r, max_r, min_c, max_c = bounds
+            for row in ws.iter_rows(
+                min_row=min_r, max_row=max_r, min_col=min_c, max_col=max_c
+            ):
                 for cell in row:
                     coord = cell.coordinate
                     key = (sheet, coord)
@@ -163,9 +204,10 @@ class WorkbookManager:
 
     def recalculate(self) -> None:
         if self.formula_model is None:
-            raise RuntimeError("Formula model not loaded")
+            raise RuntimeError("Formula engine not loaded")
         inputs = self._build_dispatch_inputs()
         self.solution = self.formula_model.dsp.dispatch(inputs)
+        self._export_cache = None
 
     def get_named_range_values(self, name: str) -> list[str]:
         dn = self.wb.defined_names.get(name)
@@ -175,9 +217,8 @@ class WorkbookManager:
         if not destinations:
             return []
         sheet, ref = destinations[0]
-        ws = self.wb[sheet]
         values: list[str] = []
-        for row in ws[ref]:
+        for row in self.wb[sheet][ref]:
             for cell in row:
                 val = self.get_display_value(sheet, cell.coordinate)
                 if val is not None and str(val).strip():
@@ -185,6 +226,8 @@ class WorkbookManager:
         return values
 
     def export_bytes(self) -> bytes:
+        if self._export_cache is not None:
+            return self._export_cache
         buffer = io.BytesIO()
         export_wb = load_workbook(self.template_path, keep_vba=True)
         for (sheet, coord), value in self.user_values.items():
@@ -193,17 +236,8 @@ class WorkbookManager:
                 cell.value = value
         export_wb.save(buffer)
         buffer.seek(0)
-        return buffer.getvalue()
-
-    def clone(self) -> "WorkbookManager":
-        new = WorkbookManager(self.template_path)
-        new.user_values = copy.deepcopy(self.user_values)
-        for (sheet, coord), value in new.user_values.items():
-            new.wb[sheet][coord].value = value
-        new.formula_model = self.formula_model
-        new._data_nodes = self._data_nodes
-        new.solution = copy.deepcopy(self.solution)
-        return new
+        self._export_cache = buffer.getvalue()
+        return self._export_cache
 
     def sheet_bounds(self, sheet: str) -> tuple[int, int, int, int] | None:
         return sheet_bounds(self.wb[sheet])
