@@ -1,45 +1,80 @@
+from typing import Any
+
 import streamlit as st
+import streamlit.components.v1 as components
 import formulas
 
-from app.config import get_template_path, ordered_sheets, VERSIONS
+from app.config import DEFAULT_SHEET, get_template_path, ordered_sheets, VERSIONS
 from app.html_renderer import render_sheet_css, render_sheet_html
 from app.utils import format_display_value
 from app.workbook_manager import WorkbookManager
 
 
-@st.cache_resource(show_spinner="Loading formula engine for {version_label}...")
-def load_formula_model(template_path: str, version_label: str) -> formulas.ExcelModel:
+@st.cache_resource(show_spinner="Building formula engine (first load may take ~30 seconds)...")
+def load_formula_model(template_path: str) -> formulas.ExcelModel:
     return formulas.ExcelModel().loads(template_path).finish()
 
 
-def init_session_state() -> None:
-    if "version" not in st.session_state:
-        st.session_state.version = list(VERSIONS.keys())[0]
-    if "manager" not in st.session_state:
-        st.session_state.manager = None
-    if "active_sheet" not in st.session_state:
-        st.session_state.active_sheet = None
-    if "recalc_needed" not in st.session_state:
-        st.session_state.recalc_needed = False
-
-
-def load_workbook_for_version(version_label: str) -> WorkbookManager:
+def create_manager(version_label: str) -> WorkbookManager:
     path = get_template_path(version_label)
     manager = WorkbookManager(path)
-    model = load_formula_model(str(path), version_label)
+    model = load_formula_model(str(path))
     manager.attach_formula_model(model)
-    with st.spinner("Calculating workbook formulas..."):
-        manager.recalculate()
+    manager.recalculate()
     return manager
 
 
-def on_version_change() -> None:
-    version = st.session_state.version_selector
-    st.session_state.version = version
-    st.session_state.manager = load_workbook_for_version(version)
-    sheets = ordered_sheets(st.session_state.manager.list_sheets())
-    st.session_state.active_sheet = sheets[0]
-    st.session_state.recalc_needed = False
+def init_session_state() -> None:
+    defaults = {
+        "version": list(VERSIONS.keys())[0],
+        "loaded_version": None,
+        "manager": None,
+        "active_sheet": DEFAULT_SHEET,
+        "load_error": None,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+def ensure_manager_loaded(selected_version: str) -> bool:
+    if (
+        st.session_state.manager is not None
+        and st.session_state.loaded_version == selected_version
+    ):
+        return True
+
+    try:
+        with st.status(f"Loading **{selected_version}**...", expanded=True) as status:
+            st.write("Opening Excel template...")
+            manager = create_manager(selected_version)
+            st.write("Formulas calculated.")
+            st.session_state.manager = manager
+            st.session_state.loaded_version = selected_version
+            st.session_state.version = selected_version
+            st.session_state.load_error = None
+            sheets = ordered_sheets(manager.list_sheets())
+            if st.session_state.active_sheet not in sheets:
+                st.session_state.active_sheet = (
+                    DEFAULT_SHEET if DEFAULT_SHEET in sheets else sheets[0]
+                )
+            status.update(label="Spreadsheet loaded.", state="complete")
+        return True
+    except Exception as exc:
+        st.session_state.load_error = str(exc)
+        st.session_state.manager = None
+        st.session_state.loaded_version = None
+        return False
+
+
+def render_sheet_preview(manager: WorkbookManager, sheet: str) -> None:
+    try:
+        html = render_sheet_css() + render_sheet_html(manager, sheet)
+        if len(html) > 500000:
+            st.caption("Large sheet — scroll inside the preview panel below.")
+        components.html(html, height=720, scrolling=True)
+    except Exception as exc:
+        st.error(f"Could not render sheet preview: {exc}")
 
 
 def main() -> None:
@@ -75,27 +110,31 @@ def main() -> None:
     version_labels = list(VERSIONS.keys())
     current_index = version_labels.index(st.session_state.version)
 
-    st.selectbox(
+    selected_version = st.selectbox(
         "Select spreadsheet version",
         version_labels,
         index=current_index,
         key="version_selector",
         help="Choose Base (General), BEV, or CVT — same templates as the original Excel files.",
-        on_change=on_version_change,
     )
 
-    if st.session_state.manager is None:
-        st.session_state.manager = load_workbook_for_version(st.session_state.version)
+    if not ensure_manager_loaded(selected_version):
+        st.error(f"Failed to load spreadsheet: {st.session_state.load_error}")
+        st.info("Check that template files exist in the `templates/` folder and try again.")
+        return
 
     manager: WorkbookManager = st.session_state.manager
     sheets = ordered_sheets(manager.list_sheets())
 
     if st.session_state.active_sheet not in sheets:
-        st.session_state.active_sheet = sheets[0]
+        st.session_state.active_sheet = (
+            DEFAULT_SHEET if DEFAULT_SHEET in sheets else sheets[0]
+        )
 
     st.markdown(
-        f"<div class='version-banner'><strong>Active version:</strong> {st.session_state.version}"
-        f" &nbsp;|&nbsp; <strong>File:</strong> {manager.book_name}</div>",
+        f"<div class='version-banner'><strong>Active version:</strong> {selected_version}"
+        f" &nbsp;|&nbsp; <strong>File:</strong> {manager.book_name}"
+        f" &nbsp;|&nbsp; <strong>Sheet:</strong> {st.session_state.active_sheet}</div>",
         unsafe_allow_html=True,
     )
 
@@ -104,9 +143,44 @@ def main() -> None:
         st.markdown("Worksheets match the Excel tab bar order.")
 
         for group_name, group_sheets in [
-            ("Report", ["Test Summary -->", "DRB - Summary", "DRB - Color Chart", "Optional Test - Summary", "Engine - Summary"]),
-            ("DRB Tests", ["DRB Testing -->", "Driveaway-sweeps", "Driveaway ESS", "Decel Cstdowns", "Decel OPD", "USS-Manual (Opt.)", "RTITO_AD", "TI_CstSpd ", "TO_CstSpd", "RRL (with HS)", "Garage Shifts", "Kickdowns"]),
-            ("Engine Tests", ["ENG Testing -->", "TITO(Opt)", "CstSpd", "Acceleration(Opt)", "Stationary Test", "Engine - Color Chart"]),
+            (
+                "Report",
+                [
+                    "Test Summary -->",
+                    "DRB - Summary",
+                    "DRB - Color Chart",
+                    "Optional Test - Summary",
+                    "Engine - Summary",
+                ],
+            ),
+            (
+                "DRB Tests",
+                [
+                    "DRB Testing -->",
+                    "Driveaway-sweeps",
+                    "Driveaway ESS",
+                    "Decel Cstdowns",
+                    "Decel OPD",
+                    "USS-Manual (Opt.)",
+                    "RTITO_AD",
+                    "TI_CstSpd ",
+                    "TO_CstSpd",
+                    "RRL (with HS)",
+                    "Garage Shifts",
+                    "Kickdowns",
+                ],
+            ),
+            (
+                "Engine Tests",
+                [
+                    "ENG Testing -->",
+                    "TITO(Opt)",
+                    "CstSpd",
+                    "Acceleration(Opt)",
+                    "Stationary Test",
+                    "Engine - Color Chart",
+                ],
+            ),
             ("Reference", ["Pedal Geo", "Test Details -->", "PV Max", "Acronyms"]),
         ]:
             visible = [s for s in group_sheets if s in sheets]
@@ -116,14 +190,15 @@ def main() -> None:
             for sheet_name in visible:
                 if st.button(sheet_name, key=f"nav_{sheet_name}", use_container_width=True):
                     st.session_state.active_sheet = sheet_name
+                    st.rerun()
 
         st.divider()
         st.subheader("Recalculate")
         if st.button("Recalculate all sheets", type="primary", use_container_width=True):
             with st.spinner("Recalculating formulas..."):
                 manager.recalculate()
-            st.session_state.recalc_needed = False
             st.success("Recalculation complete.")
+            st.rerun()
 
         export_name = manager.book_name.replace(".xlsm", "_export.xlsm")
         st.download_button(
@@ -147,7 +222,7 @@ def main() -> None:
     bounds = manager.sheet_bounds(active_sheet)
     if bounds:
         min_r, max_r, min_c, max_c = bounds
-        st.caption(f"Used range: {min_r}:{max_r} rows, columns {min_c}:{max_c}")
+        st.caption(f"Used range: rows {min_r}–{max_r}, columns {min_c}–{max_c}")
     else:
         st.info("This worksheet is empty in the template — same as the original Excel file.")
 
@@ -181,9 +256,13 @@ def main() -> None:
                 st.success(f"Updated {active_sheet}!{coord}")
                 st.rerun()
 
-        # Dropdown for PV_Max selector cells
         pv_options = manager.get_named_range_values("PV_Max")
-        if pv_options and active_sheet in ("Driveaway-sweeps", "Driveaway ESS", "Decel Cstdowns", "USS-Manual (Opt.)"):
+        if pv_options and active_sheet in (
+            "Driveaway-sweeps",
+            "Driveaway ESS",
+            "Decel Cstdowns",
+            "USS-Manual (Opt.)",
+        ):
             st.markdown("**Transmission / PV Max selector (cell A1)**")
             current_a1 = format_display_value(manager.get_display_value(active_sheet, "A1"))
             selected_pv = st.selectbox(
@@ -201,8 +280,8 @@ def main() -> None:
         editable = manager.editable_cells_for_sheet(active_sheet)
         st.caption(f"{len(editable)} editable cells on this sheet")
 
-    st.markdown(render_sheet_css(), unsafe_allow_html=True)
-    st.markdown(render_sheet_html(manager, active_sheet), unsafe_allow_html=True)
+    st.markdown("### Sheet preview")
+    render_sheet_preview(manager, active_sheet)
 
     with st.expander("Quick edit — batch cell entry"):
         entry_cols = st.multiselect(
@@ -231,12 +310,16 @@ def main() -> None:
                     cols = st.columns(len(row_coords))
                     for i, coord in enumerate(row_coords):
                         with cols[i]:
-                            val = format_display_value(manager.get_display_value(active_sheet, coord))
+                            val = format_display_value(
+                                manager.get_display_value(active_sheet, coord)
+                            )
                             edits.append((coord, st.text_input(coord, value=val)))
                 submitted = st.form_submit_button("Apply batch edits & recalculate")
                 if submitted:
                     for coord, new_val in edits:
-                        old_val = format_display_value(manager.get_display_value(active_sheet, coord))
+                        old_val = format_display_value(
+                            manager.get_display_value(active_sheet, coord)
+                        )
                         if new_val != old_val:
                             manager.set_cell_value(active_sheet, coord, new_val)
                     with st.spinner("Recalculating..."):

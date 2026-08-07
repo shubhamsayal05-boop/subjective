@@ -22,6 +22,9 @@ def get_template_path(version_label: str) -> Path:
     return TEMPLATES_DIR / filename
 
 
+DEFAULT_SHEET = "DRB - Summary"
+
+
 def ordered_sheets(sheetnames: list[str]) -> list[str]:
     known = set(sheetnames)
     ordered: list[str] = []
