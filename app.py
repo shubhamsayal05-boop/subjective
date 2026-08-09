@@ -1,76 +1,54 @@
 import streamlit as st
-import formulas
 
-from app.config import DEFAULT_SHEET, get_template_path, ordered_sheets, VERSIONS
+from app.cell_store import CellStore, load_bundle
+from app.config import DEFAULT_SHEET, ordered_sheets, VERSIONS
+from app.formula_engine import recalculate
 from app.grid_builder import build_grid_data
-from app.workbook_manager import WorkbookManager
 from components.excel_grid import excel_grid
 
 
 @st.cache_resource(show_spinner=False)
-def load_formula_model(template_path: str) -> formulas.ExcelModel:
-    return formulas.ExcelModel().loads(template_path).finish()
+def load_bundle_cached(version_key: str) -> dict:
+    return load_bundle(version_key)
 
 
-@st.cache_resource(show_spinner="Loading spreadsheet...")
-def get_manager(version_label: str) -> WorkbookManager:
-    return WorkbookManager(get_template_path(version_label))
-
-
-def ensure_formula_engine(manager: WorkbookManager, version_label: str) -> None:
-    if manager.has_formula_engine():
-        return
-    path = str(get_template_path(version_label))
-    with st.spinner("Starting formula engine (first time ~25s, then cached)..."):
-        model = load_formula_model(path)
-        manager.attach_formula_model(model)
+def get_store(version_key: str) -> CellStore:
+    if (
+        st.session_state.get("store") is None
+        or st.session_state.get("store_version") != version_key
+    ):
+        store = CellStore(load_bundle_cached(version_key))
+        recalculate(store)
+        st.session_state.store = store
+        st.session_state.store_version = version_key
+        st.session_state.last_edit_sig = None
+    return st.session_state.store
 
 
 def init_session_state() -> None:
     defaults = {
-        "version": list(VERSIONS.keys())[0],
-        "loaded_version": None,
+        "version_key": VERSIONS[list(VERSIONS.keys())[0]],
         "active_sheet": DEFAULT_SHEET,
-        "load_error": None,
-        "live_calc": False,
         "last_edit_sig": None,
+        "store": None,
+        "store_version": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
-def ensure_version(version_label: str) -> WorkbookManager | None:
-    try:
-        if st.session_state.loaded_version != version_label:
-            st.session_state.loaded_version = version_label
-            st.session_state.version = version_label
-            st.session_state.live_calc = False
-            st.session_state.last_edit_sig = None
-            sheets = ordered_sheets(get_manager(version_label).list_sheets())
-            if st.session_state.active_sheet not in sheets:
-                st.session_state.active_sheet = (
-                    DEFAULT_SHEET if DEFAULT_SHEET in sheets else sheets[0]
-                )
-        return get_manager(version_label)
-    except Exception as exc:
-        st.session_state.load_error = str(exc)
-        return None
-
-
-def apply_grid_edits(manager: WorkbookManager, sheet: str, edits: dict) -> bool:
+def apply_grid_edits(store: CellStore, sheet: str, edits: dict) -> bool:
     if not edits:
         return False
-    edit_sig = str(sorted(edits.items()))
-    if st.session_state.last_edit_sig == edit_sig:
+    sig = str(sorted(edits.items()))
+    if st.session_state.last_edit_sig == sig:
         return False
     for coord, value in edits.items():
-        if manager.is_editable(sheet, coord):
-            manager.set_cell_value(sheet, coord, value)
-    st.session_state.last_edit_sig = edit_sig
-    if manager.has_formula_engine():
-        manager.recalculate()
-        st.session_state.live_calc = True
+        if store.is_editable(sheet, coord):
+            store.set_user_value(sheet, coord, value)
+    recalculate(store)
+    st.session_state.last_edit_sig = sig
     return True
 
 
@@ -88,11 +66,10 @@ def main() -> None:
         """
         <style>
           .block-container { padding-top: 0.75rem; max-width: 100%; }
-          div[data-testid="stSidebar"] { background: #f7f7f7; }
+          div[data-testid="stSidebar"] { background-color: #f7f7f7; }
           .banner {
             background: linear-gradient(90deg, #217346, #185c37);
             color: white; padding: 10px 14px; border-radius: 8px; margin-bottom: 8px;
-            font-size: 14px;
           }
         </style>
         """,
@@ -100,45 +77,39 @@ def main() -> None:
     )
 
     st.title("Subjective Spreadsheet Tool")
-    st.caption(
-        "Standalone web tool — no Microsoft Excel required. "
-        "Double-click any white cell to edit, like Excel."
-    )
+    st.caption("Pure Python — instant load, double-click cells to edit like Excel.")
 
-    version_labels = list(VERSIONS.keys())
-    selected_version = st.selectbox(
+    labels = list(VERSIONS.keys())
+    current_label = next(
+        k for k, v in VERSIONS.items() if v == st.session_state.version_key
+    )
+    label = st.selectbox(
         "Select spreadsheet version",
-        version_labels,
-        index=version_labels.index(st.session_state.version),
-        key="version_selector",
+        labels,
+        index=labels.index(current_label),
+        key="version_label",
     )
+    version_key = VERSIONS[label]
+    if version_key != st.session_state.version_key:
+        st.session_state.version_key = version_key
+        st.session_state.store = None
 
-    manager = ensure_version(selected_version)
-    if manager is None:
-        st.error(f"Failed to load: {st.session_state.load_error}")
-        return
+    store = get_store(version_key)
+    sheets = ordered_sheets(store.list_sheets())
 
-    sheets = ordered_sheets(manager.list_sheets())
     if st.session_state.active_sheet not in sheets:
         st.session_state.active_sheet = (
             DEFAULT_SHEET if DEFAULT_SHEET in sheets else sheets[0]
         )
 
-    mode = "Live formulas" if st.session_state.live_calc else "Fast preview"
     st.markdown(
         f"<div class='banner'>"
-        f"<b>Version:</b> {selected_version} &nbsp;|&nbsp; "
+        f"<b>Version:</b> {label} &nbsp;|&nbsp; "
         f"<b>Sheet:</b> {st.session_state.active_sheet} &nbsp;|&nbsp; "
-        f"<b>Mode:</b> {mode}"
+        f"<b>Engine:</b> Python (instant)"
         f"</div>",
         unsafe_allow_html=True,
     )
-
-    if not st.session_state.live_calc:
-        st.caption(
-            "Grey cells are calculated automatically. "
-            "After editing, click **Recalculate** in the sidebar to update formula cells."
-        )
 
     with st.sidebar:
         st.header("Sheets")
@@ -194,36 +165,25 @@ def main() -> None:
                     st.rerun()
 
         st.divider()
-        if st.button("Recalculate all sheets", type="primary", use_container_width=True):
-            ensure_formula_engine(manager, selected_version)
-            with st.spinner("Recalculating..."):
-                manager.recalculate()
-            st.session_state.live_calc = True
+        if st.button("Recalculate", type="primary", use_container_width=True):
+            recalculate(store)
             st.session_state.last_edit_sig = None
             st.rerun()
 
         st.download_button(
-            "Download .xlsm",
-            data=manager.export_bytes(),
-            file_name=manager.book_name.replace(".xlsm", "_export.xlsm"),
-            mime="application/vnd.ms-excel.sheet.macroEnabled.12",
+            "Download .xlsx",
+            data=store.export_xlsx_bytes(),
+            file_name=f"{store.book_name.replace('.xlsm', '')}_export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
-        st.divider()
-        st.caption("Acronyms: nd, b, c, st, j, sh — prefix ! for bad events")
-
     active_sheet = st.session_state.active_sheet
-    grid_data = build_grid_data(manager, active_sheet, height=700)
+    grid_data = build_grid_data(store, active_sheet, height=700)
+    result = excel_grid(grid_data, height=720, key=f"grid_{version_key}_{active_sheet}")
 
-    grid_result = excel_grid(
-        grid_data,
-        height=720,
-        key=f"grid_{selected_version}_{active_sheet}",
-    )
-
-    if grid_result and grid_result.get("edits"):
-        if apply_grid_edits(manager, active_sheet, grid_result["edits"]):
+    if result and result.get("edits"):
+        if apply_grid_edits(store, active_sheet, result["edits"]):
             st.rerun()
 
 

@@ -1,47 +1,43 @@
-# Subjective Spreadsheet Tool (Streamlit)
+# Subjective Spreadsheet Tool
 
-Standalone **web-based** subjective driveability test tool. No Microsoft Excel installation required.
+**100% Python** — no Excel runtime, no slow formula engine startup.
 
-## Versions (select on main screen)
+Templates, formulas, and layout are bundled as JSON (`app/bundled/*.json`) with a native Python formula evaluator (~0.2s recalc).
 
-| Version | Use case |
-|---------|----------|
-| Base (General Transmission) | Standard template |
-| BEV (Battery Electric) | Battery electric vehicles |
-| CVT (CVT Transmission) | CVT transmissions |
-
-## Editing (Excel-like)
-
-- **Double-click** any editable (white) cell to edit
-- **Enter** or click away to save
-- **Tab** moves to the next editable cell
-- Grey cells are formula/calculated — use **Recalculate** after edits
-
-## Run locally
+## Run
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open http://localhost:8501
+## Features
 
-## Performance
+- **Instant load** (~0.01s data + ~0.2s formulas)
+- **Double-click** cells to edit (Excel-like grid)
+- **Base / BEV / CVT** versions on main screen
+- **Download .xlsx** export
 
-- **First open:** ~5 seconds (spreadsheet loads from bundled templates)
-- **Recalculate:** first time loads formula engine (~25s, cached); then ~2s
-- Without recalculate, saved template values are shown instantly
+## Editing
 
-## Export
+1. Double-click a white (editable) cell
+2. Type value (e.g. `b`, `nd`, `!c`)
+3. Enter to save — summaries update automatically
 
-Download `.xlsm` from the sidebar. Open in Excel only if you need native Excel printing — the web tool is fully standalone.
+## Re-extract templates (optional)
 
-## Structure
+If you update the source `.xlsm` files in `templates/`:
 
+```bash
+python scripts/extract_bundles.py
 ```
-app.py                     # Streamlit UI
-components/excel_grid/     # Double-click in-cell editor
-app/workbook_manager.py    # Data + optional live formulas
-app/grid_builder.py        # Grid JSON for the editor
-templates/                 # Bundled spreadsheet templates (internal)
-```
+
+## Architecture
+
+| File | Purpose |
+|------|---------|
+| `app/bundled/*.json` | Sheet data, styles, formulas (pre-extracted) |
+| `app/cell_store.py` | In-memory workbook |
+| `app/formula_engine.py` | Python IF/COUNTIF/COUNTA/MAX/INDEX/MATCH/… |
+| `components/excel_grid/` | Double-click grid UI |
+| `app.py` | Streamlit app |
