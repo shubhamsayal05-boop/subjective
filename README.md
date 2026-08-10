@@ -39,5 +39,5 @@ python scripts/extract_bundles.py
 | `app/bundled/*.json` | Sheet data, styles, formulas (pre-extracted) |
 | `app/cell_store.py` | In-memory workbook |
 | `app/formula_engine.py` | Python IF/COUNTIF/COUNTA/MAX/INDEX/MATCH/… |
-| `components/excel_grid/` | Double-click grid UI |
+| `app/grid_widget.py` | AgGrid double-click editor |
 | `app.py` | Streamlit app |
