@@ -3,15 +3,37 @@
 from typing import Any
 
 import pandas as pd
+from openpyxl.utils import get_column_letter
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from st_aggrid.shared import GridUpdateMode
 
-from openpyxl.utils import get_column_letter
-
 from app.cell_store import CellStore
 
+_CHAR_PX = 7
+_MIN_COL_WIDTH = 36
+_MAX_COL_WIDTH = 480
+_ROW_COL_WIDTH = 48
 
-def build_sheet_dataframe(store: CellStore, sheet: str) -> tuple[pd.DataFrame, list[str], dict[str, str]]:
+
+def _column_width(df: pd.DataFrame, col: str, bundled_px: int | None) -> tuple[int, bool]:
+    max_len = len(col)
+    if col in df.columns:
+        for val in df[col].fillna("").astype(str):
+            max_len = max(max_len, len(val))
+
+    if max_len > 50:
+        width = min(max(bundled_px or 140, 120), 320)
+        return width, True
+
+    content_px = min(max(max_len * _CHAR_PX + 20, _MIN_COL_WIDTH), _MAX_COL_WIDTH)
+    if bundled_px:
+        return min(max(bundled_px, content_px), _MAX_COL_WIDTH), False
+    return content_px, False
+
+
+def build_sheet_dataframe(
+    store: CellStore, sheet: str
+) -> tuple[pd.DataFrame, list[str], dict[str, Any]]:
     meta = store.sheet_meta(sheet)
     bounds = meta.get("bounds")
     if not bounds:
@@ -19,6 +41,7 @@ def build_sheet_dataframe(store: CellStore, sheet: str) -> tuple[pd.DataFrame, l
 
     min_r, max_r, min_c, max_c = bounds
     columns = [get_column_letter(c) for c in range(min_c, max_c + 1)]
+    bundled_widths = meta.get("col_widths", {})
     rows: list[dict[str, Any]] = []
 
     for r in range(min_r, max_r + 1):
@@ -30,7 +53,12 @@ def build_sheet_dataframe(store: CellStore, sheet: str) -> tuple[pd.DataFrame, l
             row[f"__e_{letter}"] = store.is_editable(sheet, coord)
         rows.append(row)
 
-    return pd.DataFrame(rows), columns, {"min_r": min_r, "min_c": min_c, "sheet": sheet}
+    return pd.DataFrame(rows), columns, {
+        "min_r": min_r,
+        "min_c": min_c,
+        "sheet": sheet,
+        "bundled_widths": bundled_widths,
+    }
 
 
 _EDITABLE_JS = JsCode(
@@ -40,6 +68,20 @@ _EDITABLE_JS = JsCode(
         if (!field || field === 'Row') return false;
         const key = '__e_' + field;
         return params.data[key] === true;
+    }
+    """
+)
+
+_AUTOSIZE_JS = JsCode(
+    """
+    function(params) {
+        try {
+            if (params.api && params.api.autoSizeAllColumns) {
+                params.api.autoSizeAllColumns(false);
+            } else if (params.columnApi) {
+                params.columnApi.autoSizeAllColumns(false);
+            }
+        } catch (e) {}
     }
     """
 )
@@ -54,6 +96,9 @@ def render_editable_grid(
     if df.empty:
         return None
 
+    bundled = ctx.get("bundled_widths", {})
+    min_c = ctx["min_c"]
+
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column(
         editable=False,
@@ -63,13 +108,32 @@ def render_editable_grid(
         wrapText=False,
         autoHeight=False,
         singleClickEdit=False,
+        suppressSizeToFit=True,
     )
-    gb.configure_column("Row", editable=False, width=52, pinned="left", cellStyle={"backgroundColor": "#f0f0f0"})
-    for col in data_columns:
+    gb.configure_column(
+        "Row",
+        editable=False,
+        width=_ROW_COL_WIDTH,
+        minWidth=_ROW_COL_WIDTH,
+        maxWidth=_ROW_COL_WIDTH,
+        pinned="left",
+        cellStyle={"backgroundColor": "#f0f0f0"},
+        suppressSizeToFit=True,
+    )
+
+    for idx, col in enumerate(data_columns):
+        col_idx = min_c + idx
+        bundled_px = bundled.get(str(col_idx)) or bundled.get(col_idx)
+        width, wrap = _column_width(df, col, bundled_px)
         gb.configure_column(
             col,
             editable=_EDITABLE_JS,
-            width=88,
+            width=width,
+            minWidth=min(width, _MIN_COL_WIDTH),
+            maxWidth=_MAX_COL_WIDTH,
+            wrapText=wrap,
+            autoHeight=wrap,
+            suppressSizeToFit=True,
             cellStyle=JsCode(
                 f"""
                 function(params) {{
@@ -90,6 +154,7 @@ def render_editable_grid(
         enterNavigatesVertically=True,
         enterNavigatesVerticallyAfterEdit=True,
         stopEditingWhenCellsLoseFocus=True,
+        onFirstDataRendered=_AUTOSIZE_JS,
     )
 
     grid_options = gb.build()
@@ -101,6 +166,7 @@ def render_editable_grid(
         update_mode=GridUpdateMode.VALUE_CHANGED,
         allow_unsafe_jscode=True,
         theme="streamlit",
+        fit_columns_on_grid_load=False,
         key=f"aggrid_{ctx['sheet']}",
     )
 
@@ -112,7 +178,6 @@ def render_editable_grid(
         return None
 
     edits: dict[str, str] = {}
-    min_r = ctx["min_r"]
     for row_data in updated:
         r = row_data.get("Row")
         if r is None:
