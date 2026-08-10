@@ -3,8 +3,7 @@ import streamlit as st
 from app.cell_store import CellStore, load_bundle
 from app.config import DEFAULT_SHEET, ordered_sheets, VERSIONS
 from app.formula_engine import recalculate
-from app.grid_builder import build_grid_data
-from components.excel_grid import excel_grid
+from app.grid_widget import render_editable_grid
 
 
 @st.cache_resource(show_spinner=False)
@@ -38,7 +37,7 @@ def init_session_state() -> None:
             st.session_state[key] = value
 
 
-def apply_grid_edits(store: CellStore, sheet: str, edits: dict) -> bool:
+def apply_edits(store: CellStore, sheet: str, edits: dict[str, str]) -> bool:
     if not edits:
         return False
     sig = str(sorted(edits.items()))
@@ -77,7 +76,7 @@ def main() -> None:
     )
 
     st.title("Subjective Spreadsheet Tool")
-    st.caption("Pure Python — instant load, double-click cells to edit like Excel.")
+    st.caption("Pure Python — double-click a white cell to edit (like Excel).")
 
     labels = list(VERSIONS.keys())
     current_label = next(
@@ -102,14 +101,18 @@ def main() -> None:
             DEFAULT_SHEET if DEFAULT_SHEET in sheets else sheets[0]
         )
 
+    active_sheet = st.session_state.active_sheet
+
     st.markdown(
         f"<div class='banner'>"
         f"<b>Version:</b> {label} &nbsp;|&nbsp; "
-        f"<b>Sheet:</b> {st.session_state.active_sheet} &nbsp;|&nbsp; "
+        f"<b>Sheet:</b> {active_sheet} &nbsp;|&nbsp; "
         f"<b>Engine:</b> Python (instant)"
         f"</div>",
         unsafe_allow_html=True,
     )
+
+    st.caption("White cells = editable (double-click). Grey cells = calculated.")
 
     with st.sidebar:
         st.header("Sheets")
@@ -178,12 +181,14 @@ def main() -> None:
             use_container_width=True,
         )
 
-    active_sheet = st.session_state.active_sheet
-    grid_data = build_grid_data(store, active_sheet, height=700)
-    result = excel_grid(grid_data, height=720, key=f"grid_{version_key}_{active_sheet}")
+    meta = store.sheet_meta(active_sheet)
+    if not meta.get("bounds"):
+        st.info("This sheet is empty in the template.")
+        return
 
-    if result and result.get("edits"):
-        if apply_grid_edits(store, active_sheet, result["edits"]):
+    edits = render_editable_grid(store, active_sheet)
+    if edits:
+        if apply_edits(store, active_sheet, edits):
             st.rerun()
 
 
