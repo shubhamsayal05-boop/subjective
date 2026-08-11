@@ -5,7 +5,7 @@ from typing import Any
 import pandas as pd
 from openpyxl.utils import get_column_letter
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
-from st_aggrid.shared import GridUpdateMode
+from st_aggrid.shared import DataReturnMode, GridUpdateMode
 
 from app.cell_store import CellStore
 
@@ -87,6 +87,16 @@ _AUTOSIZE_JS = JsCode(
 )
 
 
+def _rows_as_dicts(data: Any) -> list[dict[str, Any]]:
+    if data is None:
+        return []
+    if isinstance(data, pd.DataFrame):
+        return data.to_dict("records")
+    if isinstance(data, list):
+        return [row for row in data if isinstance(row, dict)]
+    return []
+
+
 def render_editable_grid(
     store: CellStore,
     sheet: str,
@@ -164,6 +174,7 @@ def render_editable_grid(
         height=height,
         width="100%",
         update_mode=GridUpdateMode.VALUE_CHANGED,
+        data_return_mode=DataReturnMode.AS_INPUT,
         allow_unsafe_jscode=True,
         theme="streamlit",
         fit_columns_on_grid_load=False,
@@ -173,19 +184,20 @@ def render_editable_grid(
     if response is None:
         return None
 
-    updated = response.get("data")
-    if updated is None:
+    updated = response.get("data") if hasattr(response, "get") else getattr(response, "data", None)
+    rows = _rows_as_dicts(updated)
+    if not rows:
         return None
 
     edits: dict[str, str] = {}
-    for row_data in updated:
+    for row_data in rows:
         r = row_data.get("Row")
         if r is None:
             continue
         for col in data_columns:
-            if not row_data.get(f"__e_{col}"):
-                continue
             coord = f"{col}{r}"
+            if not store.is_editable(sheet, coord):
+                continue
             new_val = row_data.get(col, "")
             old_val = store.display_value(sheet, coord)
             new_str = "" if new_val is None else str(new_val)
