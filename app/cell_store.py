@@ -3,13 +3,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+from app.paths import bundled_dir
 from app.utils import format_display_value
-
-BUNDLED_DIR = Path(__file__).resolve().parent / "bundled"
 
 
 def load_bundle(key: str) -> dict:
-    path = BUNDLED_DIR / f"{key}.json"
+    path = bundled_dir() / f"{key}.json"
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 

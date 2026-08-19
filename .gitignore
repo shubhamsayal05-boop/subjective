@@ -7,5 +7,5 @@ venv/
 # Streamlit
 .streamlit/
 
-# OS
-.DS_Store
+build/
+dist/

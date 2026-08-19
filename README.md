@@ -4,7 +4,33 @@
 
 Templates, formulas, and layout are bundled as JSON (`app/bundled/*.json`) with a native Python formula evaluator (~0.2s recalc).
 
-## Run
+## Windows .exe (standalone app)
+
+Build on a **Windows PC** (Python 3.10+ required only for building):
+
+```bat
+build_windows.bat
+```
+
+Output:
+
+```
+dist\SubjectiveSpreadsheetTool\SubjectiveSpreadsheetTool.exe
+```
+
+- Copy the whole `SubjectiveSpreadsheetTool` folder to any Windows machine.
+- Double-click `SubjectiveSpreadsheetTool.exe` — browser opens automatically.
+- **No Python or Excel** needed on the target PC.
+- Close the console window to stop the app.
+
+Manual build:
+
+```bat
+pip install -r requirements-build.txt
+pyinstaller build_exe.spec --noconfirm
+```
+
+## Run (developer)
 
 ```bash
 pip install -r requirements.txt

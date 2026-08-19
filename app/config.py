@@ -1,7 +1,3 @@
-from pathlib import Path
-
-BUNDLED_DIR = Path(__file__).resolve().parent / "bundled"
-
 VERSIONS = {
     "Base (General Transmission)": "base",
     "BEV (Battery Electric)": "bev",
