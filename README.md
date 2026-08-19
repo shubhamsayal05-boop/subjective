@@ -6,7 +6,16 @@ Templates, formulas, and layout are bundled as JSON (`app/bundled/*.json`) with 
 
 ## Windows .exe (standalone app)
 
-Build on a **Windows PC** (Python 3.10+ required only for building):
+### Download pre-built .exe (easiest)
+
+1. Open the [Actions tab](https://github.com/shubhamsayal05-boop/subjective/actions/workflows/build-windows-exe.yml) on GitHub.
+2. Click the latest successful **Build Windows EXE** run.
+3. Under **Artifacts**, download `SubjectiveSpreadsheetTool-windows-zip`.
+4. Extract the zip, then double-click `SubjectiveSpreadsheetTool\SubjectiveSpreadsheetTool.exe`.
+
+### Build locally on Windows
+
+Python 3.10+ required only for building:
 
 ```bat
 build_windows.bat
