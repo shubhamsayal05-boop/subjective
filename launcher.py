@@ -29,7 +29,9 @@ def main() -> int:
 
     # Persist sessions next to the .exe, not inside the temp extract folder.
     if getattr(sys, "frozen", False):
-        os.chdir(os.path.dirname(sys.executable))
+        app_root = os.path.dirname(os.path.abspath(sys.executable))
+        os.environ["DRB_APP_DIR"] = app_root
+        os.chdir(app_root)
 
     port = os.environ.get("DRB_PORT", "8501")
     url = f"http://localhost:{port}"

@@ -9,15 +9,23 @@ def app_dir() -> str:
     """Directory for writable app data (sessions folder).
 
     When frozen as a .exe, sessions live next to the executable so they
-    survive restarts and are easy to find/back up.
+    survive restarts and are easy to find/back up. The launcher sets
+    DRB_APP_DIR before Streamlit starts so this stays correct even when
+    modules are loaded from PyInstaller's temp extract folder.
     """
+    env = os.environ.get("DRB_APP_DIR")
+    if env:
+        return env
     if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
+        return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 
 
-SESSION_DIR = os.path.join(app_dir(), "sessions")
-os.makedirs(SESSION_DIR, exist_ok=True)
+def session_dir() -> str:
+    """Return the sessions folder, creating it if needed."""
+    path = os.path.join(app_dir(), "sessions")
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def session_filename(vehicle: dict, variant: str) -> str:
@@ -34,7 +42,7 @@ def save_session(state: dict, name: str | None = None) -> str:
     name = name or session_filename(state.get("vehicle", {}), state.get("variant", "NA"))
     if not name.endswith(".json"):
         name += ".json"
-    path = os.path.join(SESSION_DIR, name)
+    path = os.path.join(session_dir(), name)
     payload = dict(state)
     payload["_saved_at"] = datetime.now().isoformat(timespec="seconds")
     with open(path, "w", encoding="utf-8") as f:
@@ -43,9 +51,13 @@ def save_session(state: dict, name: str | None = None) -> str:
 
 
 def list_sessions() -> list[str]:
-    return sorted(f for f in os.listdir(SESSION_DIR) if f.endswith(".json"))
+    d = session_dir()
+    try:
+        return sorted(f for f in os.listdir(d) if f.endswith(".json"))
+    except OSError:
+        return []
 
 
 def load_session(name: str) -> dict:
-    with open(os.path.join(SESSION_DIR, name), encoding="utf-8") as f:
+    with open(os.path.join(session_dir(), name), encoding="utf-8") as f:
         return json.load(f)
