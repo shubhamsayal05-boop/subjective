@@ -3,9 +3,25 @@
 Standalone Python port of the 072926 Subjective Spreadsheets (AT / BEV / CVT).
 No Excel required — all data is stored as JSON.
 
-## Run
+## Run (Python)
     pip install -r requirements.txt
     streamlit run app.py
+
+## Build Windows .exe
+
+### Option A — double-click build script (on Windows)
+1. Install [Python 3.10+](https://www.python.org/downloads/) and check **Add Python to PATH**.
+2. Double-click `build_exe.bat` (or run it from Command Prompt).
+3. When finished, open `dist\DRB_Subjective_Tool.exe`.
+
+### Option B — manual build (on Windows)
+    pip install -r requirements.txt -r requirements-build.txt
+    pyinstaller --noconfirm --clean drb_tool.spec
+
+The executable launches the tool in your default web browser. Saved sessions are stored in a `sessions` folder next to the `.exe`.
+
+### Option C — download from GitHub Actions
+After pushing to GitHub, open the **Actions** tab → **Build Windows EXE** workflow → download the `DRB_Subjective_Tool-Windows` artifact.
 
 ## Workflow (matches the Excel sheets exactly)
 1. **Home** — pick the transmission/propulsion (AT, BEV, CVT), enter vehicle info

@@ -1,9 +1,22 @@
 """JSON session persistence — the tool is fully Excel-independent."""
 import json
 import os
+import sys
 from datetime import datetime
 
-SESSION_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessions")
+
+def app_dir() -> str:
+    """Directory for writable app data (sessions folder).
+
+    When frozen as a .exe, sessions live next to the executable so they
+    survive restarts and are easy to find/back up.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+SESSION_DIR = os.path.join(app_dir(), "sessions")
 os.makedirs(SESSION_DIR, exist_ok=True)
 
 
