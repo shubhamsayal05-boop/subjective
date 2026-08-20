@@ -13,6 +13,7 @@ app_datas = [
     (str(root / "app.py"), "."),
     (str(root / "config.py"), "."),
     (str(root / "storage.py"), "."),
+    (str(root / ".streamlit"), ".streamlit"),
 ]
 
 datas = list(app_datas)

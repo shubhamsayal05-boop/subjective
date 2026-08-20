@@ -20,6 +20,8 @@ No Excel required — all data is stored as JSON.
 
 The executable launches the tool in your default web browser. Saved sessions are stored in a `sessions` folder next to the `.exe`.
 
+**Offline / track use:** The tool runs entirely on your laptop — no Wi-Fi or internet is required. Double-click the `.exe`, wait for your browser to open at `http://127.0.0.1:8501`, and start testing. If your browser shows an "offline" banner, ignore it; localhost still works without internet.
+
 ### Option C — download from GitHub Actions
 After pushing to GitHub, open the **Actions** tab → **Build Windows EXE** workflow → download the `DRB_Subjective_Tool-Windows` artifact.
 

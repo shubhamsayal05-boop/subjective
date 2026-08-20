@@ -1,0 +1,20 @@
+# Offline-first settings for track-side use (no Wi-Fi required).
+# The .exe launcher also applies these via CLI flags and environment variables.
+
+[global]
+developmentMode = false
+
+[server]
+headless = true
+address = "127.0.0.1"
+enableCORS = false
+enableXsrfProtection = false
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false
+serverAddress = "127.0.0.1"
+
+[client]
+toolbarMode = "viewer"
+showErrorLinks = "false"
