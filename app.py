@@ -22,7 +22,9 @@ import pandas as pd
 import streamlit as st
 
 import config as C
+import excel_export
 import storage
+import table_image
 
 st.set_page_config(
     page_title=C.APP_TITLE,
@@ -281,6 +283,38 @@ def test_stats(t, rows, cols, key):
     return dict(runs=n_runs, total_rows=len(rows), events=events, bads=bads)
 
 
+def grid_cell_colors(t, rows, cols, key=None) -> dict[tuple[int, int], str]:
+    """Background colors for JPG export of event grids."""
+    colors: dict[tuple[int, int], str] = {}
+    is_run = key in C.RUN_TESTS if key else False
+    status = simple_status(t, rows, cols)
+    for ri, r in enumerate(rows):
+        for ci, c in enumerate(cols):
+            s = status[r][c]
+            if s["sev"] == "clean" and not s["tested"] and is_run:
+                base = C.ROW_BASE_COLORS[RUN_BY_LABEL[r]["base"]]
+                colors[(ri, ci)] = base
+            else:
+                colors[(ri, ci)] = sev_color(s["sev"], s["tested"])
+    return colors
+
+
+def show_table_with_jpg(df: pd.DataFrame, key: str, *, title: str = "",
+                        cell_colors: dict[tuple[int, int], str] | None = None,
+                        index: bool = True, render: bool = True, **dataframe_kwargs):
+    """Render a table with a JPG download button (replaces CSV export on tables)."""
+    if render:
+        st.dataframe(df, **dataframe_kwargs)
+    img = table_image.dataframe_to_jpeg(df, title=title or key, cell_colors=cell_colors, index=index)
+    st.download_button(
+        "📷 Download table as JPG",
+        data=img,
+        file_name=f"{key}.jpg",
+        mime="image/jpeg",
+        key=f"jpg_{key}",
+    )
+
+
 # ============================================================================ pages
 def page_home():
     st.title("🚗 " + C.APP_TITLE)
@@ -448,7 +482,15 @@ def page_test(key: str):
             t["row_comments"][r] = str(rec["Comments"]).strip()
 
     with st.expander("Live color status (derived, same rules as DRB Summary)"):
-        st.dataframe(styled_codes(t, rows, cols, key), width="stretch")
+        preview = pd.DataFrame(t["codes"]).T.reindex(index=rows, columns=cols).fillna("")
+        show_table_with_jpg(
+            preview,
+            f"{key}_{variant}_live",
+            title=f"{d['name']} — live status",
+            cell_colors=grid_cell_colors(t, rows, cols, key),
+            index=True,
+            width="stretch",
+        )
 
     with st.expander("Objective verdicts (measured pass / marginal / fail per shift)"):
         st.caption("Optional: log the objective (measured) result per cell — "
@@ -469,6 +511,21 @@ def page_test(key: str):
         for i, r in enumerate(rows):
             for c in cols:
                 t["objective"][r][c] = str(obj_edited.iloc[i][c]).strip()
+        obj_colors = {}
+        obj_map = {"P": C.COLORS["green"], "M": C.COLORS["yellow"], "F": C.COLORS["red"]}
+        for ri, r in enumerate(rows):
+            for ci, c in enumerate(cols):
+                v = t["objective"][r][c]
+                if v:
+                    obj_colors[(ri, ci)] = obj_map.get(v, C.COLORS["grey"])
+        show_table_with_jpg(
+            pd.DataFrame(t["objective"]).T.reindex(index=rows, columns=cols).fillna(""),
+            f"{key}_{variant}_objective",
+            title=f"{d['name']} — objective verdicts",
+            cell_colors=obj_colors,
+            index=(key not in C.RUN_TESTS),
+            render=False,
+        )
 
     st.markdown("**Sheet notes**")
     new = st.text_input("Add note", key=f"cmt_{key}")
@@ -496,6 +553,8 @@ def driveaway_summary_block(t, cols):
                                height=38 * len(C.DRIVEAWAY_PEDAL_ORDER) + 40)
         for p in C.DRIVEAWAY_PEDAL_ORDER:
             t["topgear_summary"][p] = str(tg_ed.loc[p, "Top Gear"]).strip()
+        show_table_with_jpg(tg_ed, "driveaway_topgear_summary",
+                            title="Block Pedal Top Gear summary", index=True, render=False)
 
     agg = aggregate_runs(t, cols)
     pedals = [p for p in C.DRIVEAWAY_PEDAL_ORDER if p in agg]
@@ -525,6 +584,20 @@ def driveaway_summary_block(t, cols):
         st.dataframe(df.style.apply(lambda s: [f"background-color: {cdf.loc[s.name, c]}"
                                                for c in df.columns], axis=1),
                      width="stretch", height=38 * len(pedals) + 40)
+        flat_colors = {
+            (ri, ci): cdf.iloc[ri, ci]
+            for ri in range(len(pedals))
+            for ci in range(len(header))
+        }
+        slug = re.sub(r"[^a-zA-Z0-9]+", "_", title)[:40].strip("_").lower()
+        show_table_with_jpg(
+            df,
+            f"driveaway_{slug}",
+            title=title.strip("*"),
+            cell_colors=flat_colors,
+            index=True,
+            render=False,
+        )
 
     def _is_accel(c):
         cs = str(c)
@@ -566,7 +639,15 @@ def page_summary():
                          "Runs complete": f"{s['runs']}/{s['total_rows']}",
                          "Events": s["events"], "Bad (!)": s["bads"],
                          "Notes": len(t["comments"]), "Status": status})
-    st.dataframe(pd.DataFrame(rows_out), width="stretch", hide_index=True)
+    rollup_df = pd.DataFrame(rows_out)
+    show_table_with_jpg(
+        rollup_df,
+        f"summary_rollup_{variant}",
+        title="DRB Summary — test roll-up",
+        index=False,
+        width="stretch",
+        hide_index=True,
+    )
 
     # ---- driveaway block (Excel Block Pedal [Sweeps] Summary)
     if "driveaway" in C.VARIANT_TESTS[variant]:
@@ -579,32 +660,36 @@ def page_summary():
     for key in C.VARIANT_TESTS[variant]:
         t, d, rows, cols = ensure_test(key, variant)
         with st.expander(d["name"]):
-            st.dataframe(styled_codes(t, rows, cols, key), width="stretch")
+            preview = pd.DataFrame(t["codes"]).T.reindex(index=rows, columns=cols).fillna("")
+            show_table_with_jpg(
+                preview,
+                f"chart_{key}_{variant}",
+                title=d["name"],
+                cell_colors=grid_cell_colors(t, rows, cols, key),
+                index=True,
+                width="stretch",
+            )
 
     # ---- export
     st.subheader("Export")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         payload = {k: st.session_state[k] for k in ("variant", "vehicle", "data")}
         st.download_button("⬇️ Full session JSON", json.dumps(payload, indent=1),
                            file_name=f"DRB_{variant}_{vehicle_token()}.json")
     with c2:
-        recs = []
-        for key in C.VARIANT_TESTS[variant]:
-            t, d, rows, cols = ensure_test(key, variant)
-            for r in rows:
-                for c in cols:
-                    code = t["codes"][r][c]
-                    obj = t.get("objective", {}).get(r, {}).get(c, "")
-                    if code or obj or t["complete"].get(r):
-                        recs.append(dict(test=d["name"], run=r, event=c, code=code,
-                                         severity=cell_severity(code), objective=obj,
-                                         complete=t["complete"].get(r, False),
-                                         topgear=t["topgear"].get(r, ""),
-                                         comment=t.get("row_comments", {}).get(r, "")))
-        st.download_button("⬇️ Flat findings CSV",
-                           pd.DataFrame(recs).to_csv(index=False),
-                           file_name=f"DRB_{variant}_{vehicle_token()}.csv")
+        xlsx = excel_export.export_session_to_excel(variant, v, st.session_state["data"])
+        st.download_button(
+            "📊 Export as Excel (.xlsx)",
+            data=xlsx,
+            file_name=excel_export.export_filename(variant, v),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        st.caption("Fills the original DRB spreadsheet template with your entries, "
+                   "including colored cells on test sheets and the DRB Summary.")
+    with c3:
+        st.info("Each table above includes a **Download table as JPG** button for "
+                "screenshots / reports (replaces CSV downloads).")
 
 
 def page_filenames():
@@ -614,14 +699,17 @@ def page_filenames():
     rows = [{"Test": test_def(k, variant)["name"], "Label": inca_label(test_def(k, variant)["prefix"])}
             for k in C.VARIANT_TESTS[variant]]
     rows += [{"Test": f"(extra) {n}", "Label": inca_label(p)} for n, p in C.EXTRA_PREFIXES.items()]
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    fn_df = pd.DataFrame(rows)
+    show_table_with_jpg(fn_df, f"filenames_{variant}", title="INCA / AVL Filenames", index=False,
+                        width="stretch")
 
 
 def page_pv_max():
     st.title("PV Max — Pedal Voltage Reference")
     st.caption("Output pedal % → pedal voltage (3.832 V 'B' map). WOT = 3.832 V.")
     rows = [{"Pedal %": k, "PV [V]": v} for k, v in C.PV_MAX_3832B.items()]
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    show_table_with_jpg(pd.DataFrame(rows), "pv_max", title="PV Max — Pedal Voltage Reference",
+                        index=False, width="stretch")
     st.info("Full PV Max table (all voltage variants: 3.001 / 3.182 / 3.832 / 4.008 / "
             "4.477) lives in the workbook; this is the map the Driveaway PV column uses.")
 
@@ -638,9 +726,11 @@ def page_pedal_geo():
 def page_acronyms():
     st.title("Comment Shorthand — Acronyms")
     st.markdown("**General classifications**")
-    st.table(pd.DataFrame(C.ACRONYMS, columns=["Descriptor", "Shorthand", "Definition"]))
+    acr_df = pd.DataFrame(C.ACRONYMS, columns=["Descriptor", "Shorthand", "Definition"])
+    show_table_with_jpg(acr_df, "acronyms_general", title="Acronyms — General", index=False)
     st.markdown("**Modifiers**")
-    st.table(pd.DataFrame(C.MODIFIERS, columns=["Variation", "Shorthand", "Definition"]))
+    mod_df = pd.DataFrame(C.MODIFIERS, columns=["Variation", "Shorthand", "Definition"])
+    show_table_with_jpg(mod_df, "acronyms_modifiers", title="Acronyms — Modifiers", index=False)
     st.info("Cell examples: `sj` slight jerk (yellow) · `!b` bad bump (red) · "
             "`db-c` double clunk (yellow) · `l-sh` late shudder (yellow) · "
             "blank on a completed run = clean (green). "

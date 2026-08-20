@@ -13,7 +13,12 @@ app_datas = [
     (str(root / "app.py"), "."),
     (str(root / "config.py"), "."),
     (str(root / "storage.py"), "."),
+    (str(root / "excel_export.py"), "."),
+    (str(root / "table_image.py"), "."),
     (str(root / ".streamlit"), ".streamlit"),
+    (str(root / "Subjective_SprdSheet_072926.xlsm"), "."),
+    (str(root / "BEV_Subjective_SprdSheet_072926.xlsm"), "."),
+    (str(root / "CVT Subjective_SprdSheet_072926.xlsm"), "."),
 ]
 
 datas = list(app_datas)
@@ -34,6 +39,11 @@ hiddenimports = [
     "packaging.requirements",
     "importlib_metadata",
     "tzdata",
+    "openpyxl",
+    "matplotlib",
+    "PIL",
+    "excel_export",
+    "table_image",
 ]
 
 for pkg in ("streamlit", "altair", "pyarrow", "pandas"):

@@ -40,7 +40,8 @@ After pushing to GitHub, open the **Actions** tab → **Build Windows EXE** work
    26-49 yellow, >=50 red). The Block Pedal [Sweeps] Summary shows
    Subjective | Frequency pairs per shift plus TOP GEAR = MAX over that pedal
    step's runs (the Python equivalent of =MAX('Driveaway-sweeps'!Dxx:Dyy)).
-   Exports: session JSON + flat findings CSV.
+   Exports: session JSON, **Excel (.xlsx)** filled from the original template,
+   and **JPG** downloads on every table.
 4. **Filenames** — full INCA/AVL label list (prefix + vehicle token + date).
 5. **Acronyms** — the DRB shorthand dictionary (nd, b, c, st, bb, !, db, …).
 
