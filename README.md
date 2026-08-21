@@ -9,10 +9,30 @@ No Excel required — all data is stored as JSON.
 
 ## Build Windows .exe
 
-### Option A — double-click build script (on Windows)
+**Important:** The build scripts (`build_exe.bat`, `drb_tool.spec`, etc.) are in the project repo. If you only copied `app.py` / `config.py`, the build will fail — download or clone the **full folder**, including the three `.xlsm` template files.
+
+### Easiest — download pre-built .exe (no build needed)
+1. Open GitHub → **Actions** → **Build Windows EXE**
+2. Click the latest green run → scroll to **Artifacts**
+3. Download **`DRB_Subjective_Tool-Windows`**
+4. Unzip and run **`DRB_Subjective_Tool.exe`**
+
+Direct link (latest successful run on the build branch):  
+https://github.com/shubhamsayal05-boop/subjective/actions/workflows/build-exe.yml
+
+### Option A — build on your Windows PC
 1. Install [Python 3.10+](https://www.python.org/downloads/) and check **Add Python to PATH**.
-2. Double-click `build_exe.bat` (or run it from Command Prompt).
-3. When finished, open `dist\DRB_Subjective_Tool.exe`.
+2. Open the **full project folder** (must contain `build_exe.bat`, `drb_tool.spec`, and the `.xlsm` files).
+3. Double-click **`build_exe.bat`** (or run **`build_exe.ps1`** in PowerShell).
+4. Wait 5–10 minutes. When finished, open **`dist\DRB_Subjective_Tool.exe`**.
+
+If the build fails, open **`build.log`** in the same folder — it contains the full error.
+
+Common fixes:
+- **"Python is not installed"** → Reinstall Python and check "Add to PATH"
+- **"Missing required file"** → You don't have the full project folder
+- **PyInstaller error** → Run `python -m pip install -r requirements.txt -r requirements-build.txt` then try again
+- **Antivirus blocked the build** → Temporarily allow the project folder, then rebuild
 
 ### Option B — manual build (on Windows)
     pip install -r requirements.txt -r requirements-build.txt
@@ -23,7 +43,7 @@ The executable launches the tool in your default web browser. Saved sessions are
 **Offline / track use:** The tool runs entirely on your laptop — no Wi-Fi or internet is required. Double-click the `.exe`, wait for your browser to open at `http://127.0.0.1:8501`, and start testing. If your browser shows an "offline" banner, ignore it; localhost still works without internet.
 
 ### Option C — download from GitHub Actions
-After pushing to GitHub, open the **Actions** tab → **Build Windows EXE** workflow → download the `DRB_Subjective_Tool-Windows` artifact.
+Open the **Actions** tab → **Build Windows EXE** → download the **`DRB_Subjective_Tool-Windows`** artifact from the latest green run.
 
 ## Workflow (matches the Excel sheets exactly)
 1. **Home** — pick the transmission/propulsion (AT, BEV, CVT), enter vehicle info
