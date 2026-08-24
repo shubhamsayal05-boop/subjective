@@ -41,6 +41,7 @@ def configure_offline_runtime(app_root: str | None = None) -> None:
         "STREAMLIT_SERVER_ENABLE_CORS": "false",
         "STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION": "false",
         "STREAMLIT_SERVER_FILE_WATCHER_TYPE": "none",
+        "MPLBACKEND": "Agg",
     }
     for key, value in offline_env.items():
         os.environ.setdefault(key, value)

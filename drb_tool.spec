@@ -46,7 +46,7 @@ hiddenimports = [
     "table_image",
 ]
 
-for pkg in ("streamlit", "altair", "pyarrow", "pandas"):
+for pkg in ("streamlit", "altair", "pyarrow", "pandas", "matplotlib", "openpyxl"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
     datas += pkg_datas
     binaries += pkg_binaries

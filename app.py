@@ -22,9 +22,25 @@ import pandas as pd
 import streamlit as st
 
 import config as C
-import excel_export
 import storage
-import table_image
+
+try:
+    import excel_export as _excel_export
+    EXCEL_EXPORT_OK = True
+    EXCEL_EXPORT_ERROR = ""
+except Exception as exc:  # noqa: BLE001
+    _excel_export = None
+    EXCEL_EXPORT_OK = False
+    EXCEL_EXPORT_ERROR = str(exc)
+
+try:
+    import table_image as _table_image
+    TABLE_IMAGE_OK = True
+    TABLE_IMAGE_ERROR = ""
+except Exception as exc:  # noqa: BLE001
+    _table_image = None
+    TABLE_IMAGE_OK = False
+    TABLE_IMAGE_ERROR = str(exc)
 
 st.set_page_config(
     page_title=C.APP_TITLE,
@@ -305,14 +321,64 @@ def show_table_with_jpg(df: pd.DataFrame, key: str, *, title: str = "",
     """Render a table with a JPG download button (replaces CSV export on tables)."""
     if render:
         st.dataframe(df, **dataframe_kwargs)
-    img = table_image.dataframe_to_jpeg(df, title=title or key, cell_colors=cell_colors, index=index)
+    if not TABLE_IMAGE_OK:
+        st.warning(f"JPG download unavailable: {TABLE_IMAGE_ERROR}")
+        return
+    try:
+        img = _table_image.dataframe_to_jpeg(df, title=title or key, cell_colors=cell_colors, index=index)
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"Could not create JPG for this table: {exc}")
+        return
     st.download_button(
-        "📷 Download table as JPG",
+        "Download table as JPG",
         data=img,
         file_name=f"{key}.jpg",
         mime="image/jpeg",
         key=f"jpg_{key}",
+        type="primary",
     )
+
+
+@st.cache_data(show_spinner=False)
+def _build_excel_bytes(variant: str, vehicle: dict, data: dict) -> bytes:
+    if not EXCEL_EXPORT_OK:
+        raise RuntimeError(EXCEL_EXPORT_ERROR or "Excel export module not available")
+    return _excel_export.export_session_to_excel(variant, vehicle, data)
+
+
+def render_export_panel(variant: str, vehicle: dict, *, location: str = "summary"):
+    """Prominent JSON / Excel export controls."""
+    st.subheader("Export")
+    c1, c2 = st.columns(2)
+    with c1:
+        payload = {k: st.session_state[k] for k in ("variant", "vehicle", "data")}
+        st.download_button(
+            "Download session JSON",
+            json.dumps(payload, indent=1),
+            file_name=f"DRB_{variant}_{vehicle_token()}.json",
+            key=f"json_{location}",
+        )
+    with c2:
+        if not EXCEL_EXPORT_OK:
+            st.error(f"Excel export unavailable: {EXCEL_EXPORT_ERROR}")
+        else:
+            try:
+                xlsx = _build_excel_bytes(variant, vehicle, st.session_state["data"])
+                st.download_button(
+                    "Export as Excel (.xlsx)",
+                    data=xlsx,
+                    file_name=_excel_export.export_filename(variant, vehicle),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"xlsx_{location}",
+                    type="primary",
+                )
+                st.caption("Downloads a filled copy of the original DRB spreadsheet template.")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Excel export failed: {exc}")
+    if TABLE_IMAGE_OK:
+        st.caption("Each table on this page also has a **Download table as JPG** button underneath it.")
+    else:
+        st.warning(f"JPG table downloads unavailable: {TABLE_IMAGE_ERROR}")
 
 
 # ============================================================================ pages
@@ -481,6 +547,16 @@ def page_test(key: str):
         if key in C.COMMENT_COL_TESTS:
             t["row_comments"][r] = str(rec["Comments"]).strip()
 
+    codes_preview = pd.DataFrame(t["codes"]).T.reindex(index=rows, columns=cols).fillna("")
+    show_table_with_jpg(
+        codes_preview,
+        f"{key}_{variant}_grid",
+        title=d["name"],
+        cell_colors=grid_cell_colors(t, rows, cols, key),
+        index=True,
+        render=False,
+    )
+
     with st.expander("Live color status (derived, same rules as DRB Summary)"):
         preview = pd.DataFrame(t["codes"]).T.reindex(index=rows, columns=cols).fillna("")
         show_table_with_jpg(
@@ -624,6 +700,9 @@ def page_summary():
     st.caption(" · ".join(f"{f}: {v.get(f) or '—'}" for f in
                           ("Model Year", "Vehicle Line", "Engine Disp.", "Transmission",
                            "Software Level", "Last 4 of VIN")))
+
+    render_export_panel(variant, v, location="summary_top")
+
     st.markdown("Legend: 🟩 complete & clean · 🟨 event (marginal) · 🟥 `!` bad event · "
                 "⬜ not tested — Frequency: ≤25% 🟩 · 26–49% 🟨 · ≥50% 🟥")
 
@@ -670,26 +749,8 @@ def page_summary():
                 width="stretch",
             )
 
-    # ---- export
-    st.subheader("Export")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        payload = {k: st.session_state[k] for k in ("variant", "vehicle", "data")}
-        st.download_button("⬇️ Full session JSON", json.dumps(payload, indent=1),
-                           file_name=f"DRB_{variant}_{vehicle_token()}.json")
-    with c2:
-        xlsx = excel_export.export_session_to_excel(variant, v, st.session_state["data"])
-        st.download_button(
-            "📊 Export as Excel (.xlsx)",
-            data=xlsx,
-            file_name=excel_export.export_filename(variant, v),
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-        st.caption("Fills the original DRB spreadsheet template with your entries, "
-                   "including colored cells on test sheets and the DRB Summary.")
-    with c3:
-        st.info("Each table above includes a **Download table as JPG** button for "
-                "screenshots / reports (replaces CSV downloads).")
+    st.divider()
+    render_export_panel(variant, v, location="summary_bottom")
 
 
 def page_filenames():
@@ -761,6 +822,28 @@ with st.sidebar:
     if st.button("💾 Quick-save session", width="stretch") and variant:
         payload = {k: st.session_state[k] for k in ("variant", "vehicle", "data")}
         st.success(storage.save_session(payload))
+    if variant:
+        st.markdown("**Quick export**")
+        v = st.session_state["vehicle"]
+        if EXCEL_EXPORT_OK:
+            try:
+                xlsx = _build_excel_bytes(variant, v, st.session_state["data"])
+                st.download_button(
+                    "Export as Excel (.xlsx)",
+                    data=xlsx,
+                    file_name=_excel_export.export_filename(variant, v),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="sidebar_xlsx",
+                    width="stretch",
+                )
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Excel export failed: {exc}")
+        else:
+            st.caption("Excel export unavailable in this build.")
+        if TABLE_IMAGE_OK:
+            st.caption("JPG download buttons appear under each table.")
+        else:
+            st.caption("JPG downloads unavailable in this build.")
 
 if sel == "🏠 Home / Vehicle":
     page_home()
