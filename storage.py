@@ -4,6 +4,8 @@ import os
 import sys
 from datetime import datetime
 
+import naming
+
 
 def app_dir() -> str:
     """Directory for writable app data (sessions folder).
@@ -29,13 +31,7 @@ def session_dir() -> str:
 
 
 def session_filename(vehicle: dict, variant: str) -> str:
-    parts = [vehicle.get("Model Year") or "0",
-             vehicle.get("Vehicle Line") or "0",
-             variant,
-             vehicle.get("Last 4 of VIN") or "0",
-             vehicle.get("date") or datetime.now().strftime("%m%d%y")]
-    safe = "_".join(str(p).replace(" ", "").replace("/", "-") for p in parts)
-    return f"{safe}.json"
+    return naming.session_filename(vehicle, variant)
 
 
 def save_session(state: dict, name: str | None = None) -> str:

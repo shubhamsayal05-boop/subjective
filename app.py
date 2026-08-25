@@ -22,6 +22,7 @@ import pandas as pd
 import streamlit as st
 
 import config as C
+import naming
 import storage
 
 try:
@@ -133,6 +134,8 @@ def reset_editor_state(prefixes=("base_", "ed_", "tg_summary")):
     for k in list(st.session_state.keys()):
         if any(k.startswith(p) for p in prefixes):
             del st.session_state[k]
+        if k.startswith(("jpg_ready_", "xlsx_ready_", "xlsx_name_")):
+            del st.session_state[k]
 
 
 def ensure_state():
@@ -171,15 +174,11 @@ def ensure_test(key: str, variant: str):
 
 
 def vehicle_token() -> str:
-    v = st.session_state["vehicle"]
-    parts = [v.get("Model Year") or "0", v.get("Engine Disp.") or "0",
-             v.get("Transmission") or "0", v.get("Model Code") or "0",
-             v.get("Last 4 of VIN") or "0", v.get("date") or "0"]
-    return "_".join(str(p).replace(" ", "") for p in parts)
+    return naming.vehicle_token(st.session_state["vehicle"])
 
 
 def inca_label(prefix: str) -> str:
-    return f"{prefix}{vehicle_token()}"
+    return naming.inca_label(prefix, st.session_state["vehicle"])
 
 
 # ============================================================================ summary math
@@ -361,7 +360,7 @@ def render_export_panel(variant: str, vehicle: dict, *, location: str = "summary
         st.download_button(
             "Download session JSON",
             json.dumps(payload, indent=1),
-            file_name=f"DRB_{variant}_{vehicle_token()}.json",
+            file_name=f"{naming.export_basename(variant, st.session_state['vehicle'])}.json",
             key=f"json_{location}",
         )
     with c2:
@@ -409,11 +408,14 @@ def page_home():
     st.success(f"Active variant: **{choice}** — {len(C.VARIANT_TESTS[variant])} test sheets enabled")
 
     st.subheader("2 · Vehicle information")
-    st.caption("Feeds every INCA/AVL recorder label and the summary header — fill this first.")
+    st.caption("Feeds every INCA/AVL recorder label and the summary header — fill this first. "
+               "Filename token = MY_EngineDisp_Transmission_VehicleLine(LB)_VIN_Date "
+               "(Model Code is not included).")
     v = st.session_state["vehicle"]
     cols = st.columns(4)
     for i, f in enumerate(C.VEHICLE_FIELDS):
-        v[f] = cols[i % 4].text_input(f, v.get(f, ""))
+        label = C.VEHICLE_FIELD_LABELS.get(f, f)
+        v[f] = cols[i % 4].text_input(label, v.get(f, ""))
     v["date"] = st.text_input("Test date (MMDDYY)", v.get("date", ""))
     st.code(f"Recorder token:  {vehicle_token()}", language=None)
 

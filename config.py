@@ -381,6 +381,12 @@ MODIFIERS = [
 VEHICLE_FIELDS = ["Model Year", "Vehicle Line", "Engine Disp.", "Transmission",
                   "Model Code", "Prototype Level", "Software Level", "Last 4 of VIN"]
 
+# Display labels for the Home page (internal dict keys stay as in VEHICLE_FIELDS).
+VEHICLE_FIELD_LABELS = {
+    "Vehicle Line": "Vehicle Line (LB)",
+    "Model Code": "Model Code (optional — not used in filenames)",
+}
+
 
 # ----------------------------------------------------------------------------- Excel-faithful entry model
 # Cells hold SHORTHAND DEFECT CODES (e.g. "sj", "!b", "db-c"), NOT numbers.

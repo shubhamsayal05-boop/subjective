@@ -13,6 +13,7 @@ app_datas = [
     (str(root / "app.py"), "."),
     (str(root / "config.py"), "."),
     (str(root / "storage.py"), "."),
+    (str(root / "naming.py"), "."),
     (str(root / "excel_export.py"), "."),
     (str(root / "table_image.py"), "."),
     (str(root / ".streamlit"), ".streamlit"),
@@ -44,6 +45,7 @@ hiddenimports = [
     "PIL",
     "excel_export",
     "table_image",
+    "naming",
 ]
 
 for pkg in ("streamlit", "altair", "pyarrow", "pandas", "matplotlib", "openpyxl"):

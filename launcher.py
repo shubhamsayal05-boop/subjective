@@ -13,6 +13,8 @@ import os
 import sys
 import webbrowser
 from threading import Timer
+from urllib.error import URLError
+from urllib.request import urlopen
 
 HOST = "127.0.0.1"
 
@@ -26,7 +28,6 @@ def resource_path(relative: str) -> str:
 
 def configure_offline_runtime(app_root: str | None = None) -> None:
     """Apply settings so Streamlit never needs the internet."""
-    # Avoid corporate proxies intercepting localhost when offline.
     os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
     os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
 
@@ -48,13 +49,40 @@ def configure_offline_runtime(app_root: str | None = None) -> None:
 
     if app_root:
         os.environ.setdefault("DRB_APP_DIR", app_root)
-        # Let Streamlit pick up bundled .streamlit/config.toml when present.
         config_dir = os.path.join(app_root, ".streamlit")
         bundled_config = resource_path(".streamlit")
         if os.path.isdir(bundled_config) and not os.path.isdir(config_dir):
             os.makedirs(app_root, exist_ok=True)
             import shutil
             shutil.copytree(bundled_config, config_dir)
+
+
+def _write_browser_shortcut(app_root: str, port: str) -> None:
+    """Create a local shortcut users can open when offline (no Wi-Fi needed)."""
+    url = f"http://{HOST}:{port}/"
+    shortcut = os.path.join(app_root, "Open DRB Tool.url")
+    if os.path.isfile(shortcut):
+        return
+    try:
+        with open(shortcut, "w", encoding="utf-8") as f:
+            f.write("[InternetShortcut]\n")
+            f.write(f"URL={url}\n")
+    except OSError:
+        pass
+
+
+def _open_browser_when_ready(url: str, attempts: int = 30) -> None:
+    """Wait for the local Streamlit server, then open the browser."""
+    for _ in range(attempts):
+        try:
+            with urlopen(url, timeout=1):
+                webbrowser.open(url)
+                return
+        except (URLError, OSError):
+            pass
+        import time
+        time.sleep(0.5)
+    print(f"Open this address in your browser: {url}", flush=True)
 
 
 def main() -> int:
@@ -75,8 +103,17 @@ def main() -> int:
     port = os.environ.get("DRB_PORT", "8501")
     url = f"http://{HOST}:{port}"
 
-    # Open the browser once the server has a moment to bind.
-    Timer(1.5, lambda: webbrowser.open(url)).start()
+    if app_root:
+        _write_browser_shortcut(app_root, port)
+
+    print("=" * 60, flush=True)
+    print(" DRB Subjective Tool — running offline on this PC", flush=True)
+    print(f" Open in your browser: {url}", flush=True)
+    print(" Wi-Fi is NOT required. If the browser does not open,", flush=True)
+    print(f" double-click 'Open DRB Tool.url' next to the .exe", flush=True)
+    print("=" * 60, flush=True)
+
+    Timer(1.0, lambda: _open_browser_when_ready(url)).start()
 
     sys.argv = [
         "streamlit",

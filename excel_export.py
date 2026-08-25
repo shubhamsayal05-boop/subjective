@@ -12,6 +12,7 @@ import openpyxl
 from openpyxl.styles import PatternFill
 
 import config as C
+import naming
 
 TEMPLATES = {
     "AT": "Subjective_SprdSheet_072926.xlsm",
@@ -101,10 +102,7 @@ def _pedal_excel_value(pedal: str):
 
 
 def _vehicle_token(vehicle: dict) -> str:
-    parts = [vehicle.get("Model Year") or "0", vehicle.get("Engine Disp.") or "0",
-             vehicle.get("Transmission") or "0", vehicle.get("Model Code") or "0",
-             vehicle.get("Last 4 of VIN") or "0", vehicle.get("date") or "0"]
-    return "_".join(str(p).replace(" ", "") for p in parts)
+    return naming.vehicle_token(vehicle)
 
 
 def _test_def(key: str, variant: str) -> dict:
@@ -412,6 +410,4 @@ def export_session_to_excel(variant: str, vehicle: dict, data: dict) -> bytes:
 
 
 def export_filename(variant: str, vehicle: dict) -> str:
-    token = _vehicle_token(vehicle)
-    date = vehicle.get("date") or datetime.now().strftime("%m%d%y")
-    return f"DRB_{variant}_{token}_{date}.xlsx"
+    return f"{naming.export_basename(variant, vehicle)}.xlsx"
